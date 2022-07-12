@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-
 	"github.com/lyulka/trivial-ledger/server"
 )
 
@@ -40,7 +39,9 @@ func main() {
 
 		os.Exit(0)
 	}()
-
+	
+	// handler := cors.Default().Handler(s.Router)
+	// if err := http.ListenAndServe(server.TLEDGER_SERVER_ENDPOINT, handler); err != nil {
 	if err := http.ListenAndServe(server.TLEDGER_SERVER_ENDPOINT, s.Router); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}

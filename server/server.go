@@ -4,25 +4,26 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/julienschmidt/httprouter"
+	st "github.com/lyulka/trivial-ledger/structs"
+	cv3 "go.etcd.io/etcd/clientv3"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/julienschmidt/httprouter"
-	st "github.com/lyulka/trivial-ledger/structs"
-	cv3 "go.etcd.io/etcd/clientv3"
 )
 
 // const PREFIX = "tledger/"
 
 var newPrefix = "testledger/"
 
+// var TLEDGER_SERVER_ENDPOINT = "192.168.0.4:9090"
 var TLEDGER_SERVER_ENDPOINT = "localhost:9090"
 
-var DEFAULT_ENDPOINTS []string = []string{"223.194.70.105:12379", "223.194.70.105:22379", "223.194.70.105:32379"}
+var DEFAULT_ENDPOINTS []string = []string{"223.194.92.152:12379", "223.194.92.152:22379", "223.194.92.152:32379", "223.194.92.152:42379", "223.194.92.152:52379"}
 
 // var DEFAULT_ENDPOINTS []string = []string{"127.0.0.1:2379", "127.0.0.1:22379", "127.0.0.1:32379"}
 var DEFAULT_DIAL_TIMEOUT time.Duration = 1 * time.Second
@@ -39,6 +40,11 @@ type Server struct {
 
 func updatePremifx(x string) {
 	newPrefix = x
+}
+
+func enableCors(w *http.ResponseWriter) {
+	fmt.Printf("enable Cors %v \n", "start")
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
 }
 
 func New() (*Server, error) {
@@ -65,18 +71,26 @@ func New() (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	router.GET("/helloWorld", server.HelloWorldGet)
-	// router.GET("/getTransaction", server.getTransactionGet)
-	// router.GET("/getBlock", server.getBlockGet)
-	// router.POST("/proposeTransaction", server.proposeTransactionPost)
-	// router.POST("/:prefix/proposeTransaction", server.proposeTransactionPost)
-
+	router.GlobalOPTIONS = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Access-Control-Request-Method") != "" {
+			// Set CORS headers
+			header := w.Header()
+			header.Set("Access-Control-Allow-Methods", "*")
+			header.Set("Access-Control-Allow-Origin", "*")
+			header.Set("Access-Control-Allow-Headers", "*")
+			header.Add("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		}
+		// Adjust status code to 204
+		w.WriteHeader(http.StatusNoContent)
+	})
+	router.GET("/login/", server.HelloWorldGet)
 	router.GET("/login/:prefix/getTransaction/", server.getTransactionGet)
 	router.GET("/login/:prefix/getBlock/", server.getBlockGet)
 	router.POST("/login/:prefix/proposeTransaction/", server.proposeTransactionPost)
+	log.Fatal(http.ListenAndServe(":9090", router))
 	return &server, nil
 }
+
 func (s *Server) BringBlockCacheAndLatestTxNumUpToDate() error {
 	fmt.Printf("%v \n", newPrefix)
 	// Determine the latest transaction index (note that this is distinct from within-block txNum)
@@ -95,6 +109,7 @@ func (s *Server) BringBlockCacheAndLatestTxNumUpToDate() error {
 	if len(resp.Kvs) != 0 {
 		// Store latestTxIndex
 		keyPathSegments := strings.Split(string(resp.Kvs[0].Key), "/")
+		fmt.Printf("oldPath %v", keyPathSegments)
 		s.latestTxIndex, err = binaryToInt(keyPathSegments[len(keyPathSegments)-1])
 		fmt.Printf("old lastindex %v \n", s.latestTxIndex)
 		if err != nil {
@@ -105,12 +120,30 @@ func (s *Server) BringBlockCacheAndLatestTxNumUpToDate() error {
 	if len(resp.Kvs) == 0 {
 		fmt.Printf("new lastindex %v \n", s.latestTxIndex)
 		s.latestTxIndex = -1
+
 	}
+	s.blockCache = make(BlockCache)
+
 	// Determine the block number up to which transactions have been committed (floor div.)
 	latestBlockNumCommitted := int(s.latestTxIndex+1) / st.DEFAULT_BLOCK_SIZE
 
+	// if len(resp.Kvs) != 0 {
+	// 	err = s.blockCache.PopulateWithBlocks(*s.etcdClient,
+	// 		s.blockCache.latestBlockNumInCache()+1, latestBlockNumCommitted)
+	// }
+
+	// if len(resp.Kvs) == 0 {
+	// 	err = s.blockCache.PopulateWithBlocks(*s.etcdClient,
+	// 		0, latestBlockNumCommitted)
+	// }
+
+	// fmt.Printf("new latestBlockNumInCache %v \n", s.blockCache.latestBlockNumInCache())
+
 	err = s.blockCache.PopulateWithBlocks(*s.etcdClient,
 		s.blockCache.latestBlockNumInCache()+1, latestBlockNumCommitted)
+
+	// fmt.Printf("new latestBlockNumInCache %v \n", s.blockCache.latestBlockNumInCache())
+
 	if err != nil {
 		return err
 	}
@@ -152,6 +185,7 @@ func (s *Server) proposeTransaction(propTx st.ProposedTransaction) (blockNum int
 
 		// If the etcd TXN coming up succeeds, the new transaction will have the following
 		// blockNum and txNumber
+		fmt.Printf("propose Transaction Block cache %v\n", s.blockCache.latestBlockNumInCache())
 		blockNum = s.blockCache.latestBlockNumInCache() + 1
 		txNumber = int(s.latestTxIndex+1) % st.DEFAULT_BLOCK_SIZE
 
@@ -223,6 +257,7 @@ func (s *Server) getBlock(blockNum int) *st.Block {
 }
 
 func (s *Server) proposeTransactionPost(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	// enableCors(&w)
 	updatePremifx(ps.ByName("prefix") + "/")
 	proposedTx := st.ProposedTransaction{}
 	err := json.NewDecoder(r.Body).Decode(&proposedTx)
@@ -238,13 +273,14 @@ func (s *Server) proposeTransactionPost(w http.ResponseWriter, r *http.Request, 
 		io.WriteString(w, "TODO: more granular errors")
 		return
 	}
-
+	enableCors(&w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(ProposeTransactionResponse{
 		BlockNum: blockNum,
 		TxNumber: txNumber,
 	})
+	fmt.Printf("4 \n")
 }
 
 func (s *Server) getTransactionGet(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
@@ -292,7 +328,7 @@ func (s *Server) getBlockGet(w http.ResponseWriter, r *http.Request, ps httprout
 }
 
 func (s *Server) HelloWorldGet(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
-
+	enableCors(&w)
 	fmt.Println("Hello world: in")
 	fmt.Fprintln(w, "Hello world!")
 }

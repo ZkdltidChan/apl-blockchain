@@ -21,6 +21,8 @@ func (bc BlockCache) PopulateWithBlocks(client cv3.Client, start int, end int) e
 	if start == end {
 		return nil
 	}
+	fmt.Printf("start %v\n", start)
+	fmt.Printf("end %v\n", end)
 
 	ctx, cancel := context.WithTimeout(context.Background(), DEFAULT_DIAL_TIMEOUT)
 
@@ -42,9 +44,15 @@ func (bc BlockCache) PopulateWithBlocks(client cv3.Client, start int, end int) e
 		return errors.New("PopulateWithBlocks: MAJOR ARITHMETIC PROBLEM IN PROGRAMMING")
 	}
 
+	// if len(resp.Kvs) == 0 {
+	// 	start = 0
+	// 	end = 1
+	// 	fmt.Printf("start: %v ", start)
+	// }
 	// Generate blocks and add into BlockCache
 	blocksAdded := 0
 	for blockNum := start; blockNum < end; blockNum += 1 {
+		fmt.Printf("blockNum %v\n", blockNum)
 
 		var prevHash string
 

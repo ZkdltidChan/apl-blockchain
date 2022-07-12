@@ -11,6 +11,7 @@ require (
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/uuid v1.2.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/rs/cors v1.8.2 // indirect
 	go.etcd.io/etcd v3.3.25+incompatible
 	go.uber.org/zap v1.16.0 // indirect
 	google.golang.org/grpc v1.38.0 // indirect

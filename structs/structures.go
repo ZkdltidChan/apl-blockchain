@@ -5,7 +5,7 @@ import (
 	"fmt"
 )
 
-const DEFAULT_BLOCK_SIZE int = 25
+const DEFAULT_BLOCK_SIZE int = 3
 
 type ProposedTransaction struct {
 	Content string   `json:"content"`
